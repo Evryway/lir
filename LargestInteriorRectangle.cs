@@ -1249,8 +1249,374 @@ namespace Evryway
             return false;
         }
 
+        // this version does ONE lot of allocations, and tests across angles too.
+        // scans from -45 to +45 degrees in angle_step increments.
+        // optionally (see use_fan) splits the angle search up to give wider
+        // coverage of angle options earlier, so quick reject gets more opportunity
+        // to work.
+
+        public static bool CalculateLargestInteriorRectangleWithAngleSweep(Vector2[] vs_src, float angle_step, out Bound2D best, out float best_angle)
+        {
+            best = new Bound2D(Vector2.zero, Vector2.right, Vector2.zero);
+            best_angle = 0;
+
+            int vc = vs_src.Length;
+            if (vc < 4)
+            {
+                return false;
+            }
+            Vector2[] vs = new Vector2[vc];
+
+            float[] xs = new float[vc];
+            float[] ys = new float[vc];
+
+            float[] xds = new float[vc];
+            float[] yds = new float[vc];
+
+            List<float> xsl = new List<float>(vc);
+            List<float> ysl = new List<float>(vc);
+
+            float[] hspans = new float[vc];
+            float[] vspans = new float[vc];
+
+            var lengths_horizontal = new float[vc, vc];
+            var lengths_vertical = new float[vc, vc];
+
+            var cells = new int[vc, vc];
+
+            float best_area = 0;
+            best_angle = 0;
+            Vector2 best_origin = Vector2.one * -1;
+            Vector2 best_span = Vector2.one * -1;
+
+            float ang_min = -45;
+            float ang_max = 45;
+            float ang_range = ang_max - ang_min;
+
+            List<float> steps_lin = new List<float>();
+            for (float f = ang_min; f < ang_max; f += angle_step) steps_lin.Add(f);
+
+            var steps = steps_lin;
+
+            bool use_fan = true;
+            if (use_fan)
+            {
+
+                // divide and conquer the angle steps - should hopefully
+                // hone in on a large value faster than just a linear sweep,
+                // which should give faster quick reject.
+
+                // ok - that's all of our steps in an array.
+                // next, start pulling them out in layers (POT)
+                // so we get 1, 2, 4, 8, 16, etc.
+
+                int step_count = steps_lin.Count;
+                List<int> steps_at_layer = new List<int>();
+                int pull = 1;
+                int steps_left = step_count;
+                while (steps_left > 0)
+                {
+                    steps_at_layer.Add(pull);
+                    steps_left -= pull;
+                    pull = Mathf.Min(steps_left, pull << 1);
+                }
+
+
+                List<float> steps_fan = new List<float>();
+                foreach (var lay in steps_at_layer)
+                {
+                    // pull out lay items from steps_lin.
+                    float range_per_item = ang_range / (float)lay;
+                    float mid_per_item = range_per_item * 0.5f;
+                    float next = ang_min;
+                    for (int i = 0; i < lay; i++)
+                    {
+                        float check = next + mid_per_item;
+
+                        int idx = steps_lin.BinarySearch(check);
+                        if (idx < 0) idx = Mathf.Clamp((~idx) + 1, 0, steps_lin.Count - 1);
+                        var val = steps_lin[idx];
+                        steps_fan.Add(val);
+                        steps_lin.RemoveAt(idx);
+                        next += range_per_item;
+                    }
+                }
+                steps = steps_fan;
+            }
+
+
+            // work out the number of layers, where we have 1 right at the top.
+
+            foreach (var angle in steps)
+            //float angle = 0f;
+            {
+                //Debug.Log(angle);
+
+                xsl.Clear();
+                ysl.Clear();
+
+                for (int i = 0; i < vc; i++)
+                {
+                    var v = vs_src[i].Rotate(angle);
+                    vs[i] = v;
+                    xsl.Add(v.x);
+                    ysl.Add(v.y);
+                }
+
+                xsl.Sort();
+                ysl.Sort();
+
+                float xmin = xsl[0];
+                float xmax = xsl[xsl.Count - 1];
+                float ymin = ysl[0];
+                float ymax = ysl[ysl.Count - 1];
+                float mmin = Mathf.Min(xmin, ymin);
+                float mmax = Mathf.Max(xmax, ymax);
+                float epsilon = (mmax - mmin) / (1024 * 1024);        // 1 millionth of the span.
+
+                var xc = 1;
+                var yc = 1;
+                xs[0] = xsl[0];
+                ys[0] = ysl[0];
+
+                for (int i = 1; i < vs.Length; i++)
+                {
+                    if (xsl[i] - xsl[i - 1] > epsilon) xs[xc++] = xsl[i];
+                    if (ysl[i] - ysl[i - 1] > epsilon) ys[yc++] = ysl[i];
+                }
+
+                for (int i = 0; i < xc - 1; i++) xds[i] = xs[i + 1] - xs[i];
+                for (int i = 0; i < yc - 1; i++) yds[i] = ys[i + 1] - ys[i];
+
+                xc--;
+                yc--;
+
+
+                System.Array.Clear(cells, 0, cells.Length);
+
+                var v0 = vs[0];
+
+                var eix = 0; while (xs[eix] < v0.x && eix < xc) eix++;
+                var eiy = 0; while (ys[eiy] < v0.y && eiy < yc) eiy++;
+                // in this case, it may be slightly faster - but not worth the algo complexity.
+                //var eix = System.Array.BinarySearch(xs, v0.x); if (eix < 0) eix = Mathf.Clamp(0,xc+1,(~eix) - 1);
+                //var eiy = System.Array.BinarySearch(ys, v0.y); if (eix < 0) eiy = Mathf.Clamp(0,yc+1,(~eiy) - 1);
+
+
+                for (int i = 0; i < vc; i++)
+                {
+                    var s = vs[i];
+                    var e = vs[(i + 1) % vc];
+                    var edge = e - s;
+
+                    var into = new Vector2(-edge.y, edge.x);
+                    int rx = into.x >= 0 ? 0 : 1;
+                    int ry = into.y >= 0 ? 0 : 1;
+
+                    var six = eix;
+                    var siy = eiy;
+
+
+                    int tx = edge.x >= 0 ? 1 : -1;             // -1 or 1
+                    int ty = edge.y >= 0 ? 1 : -1;             // -1 or 1
+
+                    if (tx > 0) { while (xs[eix] < e.x && eix <= xc) eix++; } else { while (xs[eix] > e.x && eix > 0) eix--; }
+                    if (ty > 0) { while (ys[eiy] < e.y && eiy <= yc) eiy++; } else { while (ys[eiy] > e.y && eiy > 0) eiy--; }
+
+                    // tried it. timed it. much slower. probably because of locality in the whiles, above.
+                    //int wx = edge.x >= 0 ? 0 : 1;
+                    //int wy = edge.y >= 0 ? 0 : 1;
+                    //var eixb = System.Array.BinarySearch(xs, e.x); if (eixb < 0) { eixb = Mathf.Clamp((~eixb) - wx, 0, xc + 1); }
+                    //var eiyb = System.Array.BinarySearch(ys, e.y); if (eiyb < 0) { eiyb = Mathf.Clamp((~eiyb) - wy, 0, yc + 1); }
 
 
 
+                    // we now have a span.
+                    var span_x_start = Mathf.Min(six, eix);
+                    var span_y_start = Mathf.Min(siy, eiy);
+
+                    var span_x_end = Mathf.Max(six, eix);
+                    var span_y_end = Mathf.Max(siy, eiy);
+
+
+
+                    if (span_x_end - span_x_start == 0)
+                    {
+                        var p = span_x_start - rx;
+                        for (int q = span_y_start; q < span_y_end; q++)
+                        {
+                            if (cells[p, q] < 0) continue;
+                            cells[p, q] = 1;
+                        }
+                        continue;
+                    }
+                    else if (span_y_end - span_y_start == 0)
+                    {
+                        var q = span_y_start - ry;
+                        for (int p = span_x_start; p < span_x_end; p++)
+                        {
+                            if (cells[p, q] < 0) continue;
+                            cells[p, q] = 1;
+                        }
+                        continue;
+                    }
+                    for (int q = span_y_start; q < span_y_end; q++)
+                    {
+                        for (int p = span_x_start; p < span_x_end; p++)
+                        {
+                            if (cells[p, q] < 0) continue;
+                            var v = new Vector2(xs[p + rx], ys[q + ry]);
+                            var sv = v - s;
+                            var d = Vector2.Dot(sv, into);
+                            cells[p, q] = d < 0 ? -1 : 1;
+                        }
+                    }
+                }
+
+                // outside region sweep.
+                // some cells may not be spanned by edges.
+                // start on the outside of the region, and mark everything as exterior, until
+                // we come across a cell that has been explicitly marked.
+
+                for (int q = 0; q < yc; q++)
+                {
+                    for (int x = 0; x < xc; x++)
+                    {
+                        if (cells[x, q] != 0) break;
+                        cells[x, q] = -1;
+                    }
+                    for (int x = xc - 1; x >= 0; x--)
+                    {
+                        if (cells[x, q] != 0) break;
+                        cells[x, q] = -1;
+                    }
+                }
+
+
+                for (int p = 0; p < xc; p++)
+                {
+                    for (int y = 0; y < yc; y++)
+                    {
+                        if (cells[p, y] != 0) break;
+                        cells[p, y] = -1;
+                    }
+                    for (int y = yc - 1; y >= 0; y--)
+                    {
+                        if (cells[p, y] != 0) break;
+                        cells[p, y] = -1;
+                    }
+                }
+
+                // sweep for interior (untested) cells.
+                // in fact, mark everything.
+                for (int j = 0; j < yc; j++)
+                {
+                    for (int i = 0; i < xc; i++)
+                    {
+                        // anything that was -1 goes to 0.
+                        // anything that was 0 or 1 goes to 1.
+                        // this ensures any un-tested cells are classed as interior.
+                        cells[i, j] = cells[i, j] < 0 ? 0 : 1;
+                    }
+                }
+
+                for (int y = 0; y < yc; y++)
+                {
+                    float span = 0;
+                    for (int x = xc - 1; x >= 0; x--)
+                    {
+                        span = (cells[x, y] <= 0) ? 0 : span + xds[x];
+                        lengths_horizontal[x, y] = span;
+                    }
+                }
+
+                for (int x = 0; x < xc; x++)
+                {
+                    float span = 0;
+                    for (int y = yc - 1; y >= 0; y--)
+                    {
+                        span = (cells[x, y] <= 0) ? 0 : span + yds[y];
+                        lengths_vertical[x, y] = span;
+                    }
+                }
+
+                for (int y = 0; y < yc; y++)
+                {
+                    for (int x = 0; x < xc; x++)
+                    {
+                        var iv = cells[x, y];
+                        if (iv == 0) continue;
+
+
+                        var h = lengths_horizontal[x, y];
+                        var v = lengths_vertical[x, y];
+                        if (h * v < best_area) continue;
+
+                        int hsc = 1;
+                        hspans[0] = h;
+                        for (int q = y + 1; q < yc; q++)
+                        {
+                            if (cells[x, q] == 0) break;
+                            var h2 = lengths_horizontal[x, q];
+                            if (h2 >= h) continue;
+                            h = h2;
+                            hspans[hsc++] = h;
+                        }
+
+                        int vsc = 1;
+                        vspans[0] = v;
+                        for (int p = x + 1; p < xc; p++)
+                        {
+                            if (cells[p, y] == 0) break;
+                            var v2 = lengths_vertical[p, y];
+                            if (v2 >= v) continue;
+                            v = v2;
+                            vspans[vsc++] = v;
+                        }
+
+                        if (hsc != vsc)
+                        {
+                            Debug.LogError($"span counts don't match.  {hsc} {vsc}");
+                            continue;
+                        }
+
+                        for (int i = 0; i < hsc; i++)
+                        {
+                            float hl = hspans[i];
+                            float vl = vspans[hsc - (i + 1)];
+                            float area = hl * vl;
+                            if (area > best_area)
+                            {
+                                best_area = area;
+                                best_origin = new Vector2(xs[x], ys[y]);
+                                best_span = new Vector2(hl, vl);
+                                best_angle = angle;
+                            }
+                        }
+                    }
+                }
+            }
+
+            //-------------------------------
+            if (best_area <= 0)
+            {
+                return false;
+
+            }
+
+            var bo_r = best_origin.Rotate(-best_angle);
+            var bs_r = best_span.Rotate(-best_angle);
+
+            Vector2 centre = bo_r + (bs_r * 0.5f);
+            Vector2 size = best_span;
+            Vector2 axis = Vector2.right.Rotate(-best_angle);
+
+            best = new Bound2D(centre, axis, size);
+
+            return true;
+        }
     }
+
+
+}
 }
