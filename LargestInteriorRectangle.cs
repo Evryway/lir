@@ -641,7 +641,6 @@ namespace Evryway
 
         public static bool CalculateInteriorCells(Vector2[] vs, out float[] xs, out float[] ys, out int[,] cells)
         {
-
             var vc = vs.Length;
 
 
@@ -706,8 +705,8 @@ namespace Evryway
             var v0 = vs[0];
             var six = -1;
             var siy = -1;
-            var eix = 0; while (xs[eix] < v0.x && eix < xs.Length-1) eix++;
-            var eiy = 0; while (ys[eiy] < v0.y && eiy < ys.Length-1)  eiy++;
+            var eix = 0; while (xs[eix] < v0.x && eix < xc) eix++;
+            var eiy = 0; while (ys[eiy] < v0.y && eiy < yc) eiy++;
 
             for (int i = 0; i < vc; i++)
             {
@@ -1036,7 +1035,6 @@ namespace Evryway
 
             var lengths_horizontal = new float[axc,ayc];
             var lengths_vertical = new float[axc,ayc];
-
 
             for (int y = 0; y < ayc; y++)
             {
@@ -1616,7 +1614,4 @@ namespace Evryway
             return true;
         }
     }
-
-
-}
 }
