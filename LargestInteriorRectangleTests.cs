@@ -10,6 +10,47 @@ namespace Evryway
 
     public static class LargestInteriorRectangleTests
     {
+        public static bool TestPolygon(Vector2[] vs, bool strict = true)
+        {
+            var ok = true;
+            if (strict)
+            {
+                // construct polygon info and check that we're convex and counter-clockwise.
+                var info = PolygonInfo.Create(vs);
+                ok = info.valid && !info.clockwise;
+                if (!ok)
+                {
+                    if (!info.valid) Debug.LogError("invalid points.");
+                    if (info.clockwise) Debug.LogError("winding order is not counter-clockwise.");
+                    return false;
+                }
+            }
+
+
+            ok = LIR.CalculateInteriorCells(vs, out var xs, out var ys, out int[,] cells);
+            if (!ok)
+            {
+                Debug.LogError("points are not valid.");
+                return false;
+            }
+            ok |= LIR.CalculateLargestInteriorRectangle(xs, ys, cells, out var best);
+            if (!ok)
+            {
+                Debug.LogError("failed to calculate Largest Interior Rectangle.");
+                return false;
+            }
+
+            Debug.Log("Test passed.");
+            Debug.Log($"{best.centre.F3()}, {best.size.F3()}, {best.axis_a.F3()}");
+            return true;
+        }
+        
+        public static Vector2[] Reverse(IEnumerable<Vector2> src)
+        {
+            var rev = new List<Vector2>(src);
+            rev.Reverse();
+            return rev.ToArray();
+        }
 
         // this test calculates the largest interior rectangle for a defined set of vertices
         // which form a simple polygon.
@@ -38,10 +79,8 @@ namespace Evryway
 
             };
 
-            LIR.CalculateInteriorCells(vs, out var xs, out var ys, out int[,] cells);
-            LIR.CalculateLargestInteriorRectangle(xs, ys, cells, out var best);
+            TestPolygon(vs);
 
-            Debug.Log($"{best.centre.F3()}, {best.size.F3()}, {best.axis_a.F3()}");
         }
 
 
@@ -242,6 +281,62 @@ namespace Evryway
         }
 
 
+        // specific raised issues
+        // https://github.com/Evryway/lir/issues/4
+        public static bool TestIssue4a_IndexOutOfRange()
+        {
+            Vector2[] vs = new Vector2[] {
+                new Vector2(-6.012309074f,  -2.394122601f ),
+                new Vector2( 0.561122477f,  -2.394122601f  ),
+                new Vector2( 0.56188339f,   -8.094342232f   ),
+                new Vector2( 0.562643945f, -13.79456139f  ),
+                new Vector2(-6.010787487f, -13.79456139f ),
+                new Vector2(-9.057126045f, -13.79471302f ),
+                new Vector2(-9.05653286f,   -9.563955307f  ),
+                new Vector2(-6.010194302f,  -9.563802719f ),
+                new Vector2(-6.010483265f,  -8.186531067f ),
+                new Vector2(-10.22067451f,  -8.238635063f ),
+                new Vector2(-10.22199726f,  -2.395780802f ),
+                //new Vector2(-6.012309074f,  -2.394122601f ),
+            };
+
+            vs = Reverse(vs);
+            return TestPolygon(vs);
+        }
+
+        public static bool TestIssue4b_IndexOutOfRange()
+        {
+            Vector2[] vs = new Vector2[] {
+                new Vector2(7.525075341f, 18.03584103f),
+                new Vector2(8.873593212f, 18.03584103f),
+                new Vector2(14.71882603f, 18.04310901f),
+                new Vector2(20.09109498f, 18.04807795f),
+                new Vector2(20.09109579f, 11.30548939f),
+                new Vector2(20.08379922f, 7.390946768f),
+                new Vector2(20.07960213f, 4.904943037f),
+                new Vector2(14.8398342f, 4.913811439f),
+                new Vector2(14.81097304f, 4.913967396f),
+                new Vector2(14.81516979f, 7.399971046f),
+                new Vector2(14.77711302f, 11.31475831f),
+                new Vector2(8.897990992f, 11.31980019f),
+                new Vector2(7.517957187f, 11.32239571f),
+                new Vector2(7.517823608f, 11.16280541f),
+                new Vector2(7.512232756f, 6.440598359f),
+                new Vector2(2.821927548f, 6.425158617f),
+                new Vector2(2.781571511f, 9.5992437f),
+                new Vector2(2.761771935f, 11.32380416f),
+                new Vector2(-2.768077453f, 11.33181232f),
+                new Vector2(-2.756213328f, 18.02582882f),
+                new Vector2(2.708230927f, 18.03272605f),
+                new Vector2(2.707296381f, 19.4777793f),
+                new Vector2(5.773485434f, 19.47942581f),
+                new Vector2(5.774419978f, 18.03437257f),
+                //new Vector2(7.525075341f, 18.03584103f),
+            };
+
+            vs = Reverse(vs);
+            return TestPolygon(vs);
+        }
 
     }
 }
