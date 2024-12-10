@@ -897,53 +897,6 @@ namespace Evryway
 
         }
 
-        public static bool IntersectsWiki(Vector2 starta, Vector2 enda, Vector2 startb, Vector2 endb, out Vector2 point)
-        {
-            float x1 = starta.x, x2 = enda.x, x3 = startb.x, x4 = endb.x;
-            float y1 = starta.y, y2 = enda.y, y3 = startb.y, y4 = endb.y;
-
-            var div = ((x1-x2)*(y3-y4)) - ((y1-y2)*(x3-x4));
-            if (div != 0) {
-                float t = ((x1-x3)*(y3-y4)) - ((y1-y3)*(x3-x4));
-                if (t >= 0 && t <= 1) {
-                    float u = ((x1-x2)*(y1-y3)) - ((y1-y2)*(x1-x3));
-                    if (u >= 0 && u <= 1) {
-                        var x = x1 + (t*(x2-x1));
-                        var y = y1 + (t*(y2-y1));
-                        point = new Vector2(x,y);
-                        return true;
-                    }
-                }
-            }
-            point = Vector2.zero;
-            return false;
-        }
-
-        public static bool IntersectsOld(Vector2 starta, Vector2 enda, Vector2 startb, Vector2 endb, out Vector2 point)
-        {
-            float x1 = starta.x, x2 = enda.x, x3 = startb.x, x4 = endb.x;
-            float y1 = starta.y, y2 = enda.y, y3 = startb.y, y4 = endb.y;
-
-            float ax = x1-x2;
-            float ay = y2-y1;
-            float a = (ay*x1)+(ax*y1);
-
-            float bx = x3-x4;
-            float by = y4-y3;
-            float b = (by*x3)+(bx*y3);
-
-            float det = ay*bx - by*ax;
-            if (det==0) {point = Vector2.zero; return false; }
-
-            var x = ((bx*a) - (ax*b))/det;
-            var y = ((ay*b) - (by*a))/det;
-            point = new Vector2(x,y);
-            return true;
-        }
-
-
-
-
 
         // calculate axis-aligned cell array.
         // REQUIRED - ordered polygon points array in vs (does not need to be convex, DOES need to be ordered
