@@ -393,5 +393,27 @@ namespace Evryway
             return true;
         }
 
+
+        public static Vector2[] points_2020 = new Vector2[] {
+            new Vector2(1, 2),
+            new Vector2(6, 0),
+            new Vector2(9, 4),
+            new Vector2(13, 0),
+            new Vector2(16, 3),
+            new Vector2(17, 0),
+            new Vector2(20, 1),
+            new Vector2(16, 10),
+            new Vector2(18, 13),
+            new Vector2(20, 14),
+            new Vector2(9, 16),
+            new Vector2(0, 14),
+            new Vector2(2, 13),
+            new Vector2(4, 13),
+            new Vector2(2, 9),
+            new Vector2(2, 7),
+        };
+
+        public static bool TestPoints2020() => TestPolygon(points_2020);
+
     }
 }
