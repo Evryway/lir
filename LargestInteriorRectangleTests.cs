@@ -10,8 +10,17 @@ namespace Evryway
 
     public static class LargestInteriorRectangleTests
     {
-        public static bool TestPolygon(Vector2[] vs, bool strict = true)
+        public static bool TestPolygon(Vector2[] vs, bool strict = true) {
+            return TestPolygonWithOutputs(vs, strict, out var xs, out var ys, out var cells, out var best);
+        }
+
+        public static bool TestPolygonWithOutputs(Vector2[] vs, bool strict, out float[] xs, out float[] ys, out int[,] cells, out Bound2D best)
         {
+            xs = new float[0];
+            ys = new float[0];
+            cells = new int[0,0];
+            best = new Bound2D(Vector2.zero, Vector2.zero, Vector2.zero);
+            
             var ok = true;
             if (strict)
             {
@@ -27,13 +36,13 @@ namespace Evryway
             }
 
 
-            ok = LIR.CalculateInteriorCells(vs, out var xs, out var ys, out int[,] cells);
+            ok = LIR.CalculateInteriorCells(vs, out xs, out ys, out cells);
             if (!ok)
             {
                 Debug.LogError("points are not valid.");
                 return false;
             }
-            ok |= LIR.CalculateLargestInteriorRectangle(xs, ys, cells, out var best);
+            ok |= LIR.CalculateLargestInteriorRectangle(xs, ys, cells, out best);
             if (!ok)
             {
                 Debug.LogError("failed to calculate Largest Interior Rectangle.");
@@ -336,6 +345,52 @@ namespace Evryway
 
             vs = Reverse(vs);
             return TestPolygon(vs);
+        }
+
+        public static Vector2[] points_issue6a = new Vector2[] {
+            new Vector2(2,0),
+            new Vector2(2, 9),
+            new Vector2(9, 9),
+            new Vector2(9, 1),
+            new Vector2(3, 1),
+            new Vector2(3, 0),
+            new Vector2(10, 0),
+            new Vector2(10, 10),
+            new Vector2(1, 10),
+            new Vector2(1, 0),
+        };
+
+        public static bool TestIssue6a_InteriorLabelling()
+        {
+            var ok = TestPolygonWithOutputs(points_issue6a, true, out var xs, out var ys, out var cells, out var best);
+            if (!ok) return false;
+            // TODO - examine the returned best area.
+
+            return true;
+        }
+
+        public static Vector2[] points_issue7a = new Vector2[] {
+            new Vector2(108.504409613815f, 117.952273301153f),
+            new Vector2(109.625073657792f, 119.44319897989f),
+            new Vector2(110.66182151476f, 120.99365090112f),
+            new Vector2(111.611498518359f, 122.598911274979f),
+            new Vector2(108.702048440185f, 124.738185726188f),
+            new Vector2(96.8291239976288f, 108.590804109221f),
+            new Vector2(98.6259551665153f, 109.537436129365f),
+            new Vector2(100.225651341531f, 110.496456163888f),
+            new Vector2(101.770032345062f, 111.542226021415f),
+            new Vector2(103.25439886011f, 112.671563582988f),
+            new Vector2(104.674234184659f, 113.881032445812f),
+            new Vector2(106.025217975309f, 115.166952379701f),
+            new Vector2(107.30323939343f, 116.525410525468f),
+        };
+
+        public static bool TestIssue7a_Unexpected()
+        {
+            var ok = TestPolygonWithOutputs(points_issue7a, true, out var xs, out var ys, out var cells, out var best);
+            if (!ok) return false;
+            // TODO - examine the returned best area.
+            return true;
         }
 
     }

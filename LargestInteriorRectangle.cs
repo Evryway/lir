@@ -634,16 +634,8 @@ namespace Evryway
             return true;
         }
 
-
-        // calculate axis-aligned cell array.
-        // REQUIRED - ordered polygon points array in vs (does not need to be convex, DOES need to be ordered
-        // as a simple polygon)
-
-        public static bool CalculateInteriorCells(Vector2[] vs, out float[] xs, out float[] ys, out int[,] cells)
+        public static bool CalculateXsAndYs(Vector2[] vs, out float[] xs, out float[] ys)
         {
-            var vc = vs.Length;
-
-
             // optimisation : this is "pick distinct values, sort smallest to largest" - can definitely be
             // done faster for a couple of ms improvement.
             //xs = vs.Select(v => v.x).OrderBy(x => x).Distinct().ToArray();
@@ -685,6 +677,284 @@ namespace Evryway
 
             //Debug.Log("Xs :"); for (int i = 0; i < xs.Length; i++) Debug.Log($"\t{i}\t{xs[i]}");
             //Debug.Log("Ys :"); for (int i = 0; i < ys.Length; i++) Debug.Log($"\t{i}\t{ys[i]}");
+            return true;
+        }
+
+
+        public static bool CalculateInteriorCells(Vector2[] vs, out float[] xs, out float[] ys, out int[,] cells)
+        {
+
+            var ok = CalculateXsAndYs(vs, out xs, out ys);
+            if (!ok) { cells = new int[0,0]; return false; }
+
+            // Mark cells that are crossed by an edge, then sweep all cells to determine interior / exterior state.
+
+            // The sweep starts on the left of any row of cells, in a state of "exterior", and progresses
+            // across the cells to the right. If a cell is crossed by an edge, that flips the state for the next cell.
+
+            // we can ignore edges aligned with the cell top edge, cell bottom edge - they make no difference to our exterior/interior
+            // state.
+            // edges aligned with the cell left edge are a crossing relevant to the cell and can change the state of the next cell.
+            // edges aligned with the cell left edge of the first cell cause the first cell to be "interior".
+            // edges aligned with the cell right edge make no difference to this cell's interior/exterior state.
+
+            // edges that cross a cell, but intersect with the cell right edge, should not flip the state for the next cell.
+            // that next cell must contain some segment of the edge, so will be a crossing cell also.
+
+            // this means we need three pieces of information for each cell to be able to properly sweep:
+            // Has the cell been crossed?
+            // Does the crossing edge straddle the cell right edge?
+            // Does the edge align with the cell left edge? 
+
+            var vc = vs.Length;
+
+            var xc = xs.Length-1;
+            var yc = ys.Length-1;
+            // Debug.Log($"xs: {xc+1}, ys: {yc+1}");
+
+
+            cells = new int[xc, yc];
+            var cell_crossings = new int[xc,yc];
+            var cell_straddles = new int[xc,yc];
+            var cell_left_edges = new int[xc,yc];
+
+            // now, iterate the polygon edges.
+            // start at the first vertex, find the x and y spans.
+            var v0 = vs[0];
+            var six = -1;
+            var siy = -1;
+            var eix = 0; while (xs[eix] < v0.x && eix < xc) eix++;
+            var eiy = 0; while (ys[eiy] < v0.y && eiy < yc) eiy++;
+
+
+            // iterate ALL the edges.
+            for (int i = 0; i < vc; i++)
+            {
+
+                var s = vs[i];
+                var e = vs[(i + 1) % vc];
+                var edge = e - s;
+
+                // get the indices for the start - it should be the end vertex of the previous edge.
+                six = eix;
+                siy = eiy;
+
+                // eix = xs.IndexOf(e.x);
+                // eiy = ys.IndexOf(e.y);
+                // We can use the orientation of the edge to determine the direction of the search,
+                // and the end vertex x,y indices should be near in the arrays to the start vertex x,y indices.
+                // depending on edge length, etc - no guarantees!
+                // could possibly binary search, but if the edge lengths are short, a linear scan should be
+                // fairly fast anyway.
+
+                float tx = edge.x;
+                float ty = edge.y;
+                if (tx > 0) { while (xs[eix] < e.x && eix < xc) eix++; } else if (tx < 0) { while (xs[eix] > e.x && eix > 0) eix -= 1; }
+                if (ty > 0) { while (ys[eiy] < e.y && eiy < yc) eiy++; } else if (ty < 0) { while (ys[eiy] > e.y && eiy > 0) eiy -= 1; }
+
+                // we now have a span.
+                var span_x_start = Mathf.Min(six, eix);
+                var span_y_start = Mathf.Min(siy, eiy);
+
+                var span_x_end = Mathf.Max(six, eix);
+                var span_y_end = Mathf.Max(siy, eiy);
+
+                // Debug.Log($"edge {i} : from ({s.x},{s.y}) to ({e.x},{e.y}) - span x: {span_x_start}-{span_x_end}, y: {span_y_start}-{span_y_end}");
+
+                if (span_y_end - span_y_start == 0) {
+                    // horizontal cell edges (cell top, cell bottom) are not required in the sweep.
+                    continue;
+                }
+
+                // this covers all of the cells that the edge crosses.
+                // if the span in the X axis is zero, then we are on the LEFT EDGE of the cell.
+                if (span_x_end - span_x_start == 0) {
+                    // if we are travelling along the boundary right edge, no need to mark.
+                    if (span_x_start == xc) continue;
+                    // edge travels positive y, represents a state change from interior to exterior.
+                    // edge travels negative y, represents a state change from exterior to interior.
+                    var up = eiy-siy > 0;
+                    for (int q = span_y_start; q < span_y_end; q++) {
+                        cell_left_edges[span_x_start, q] += up ? -1 : 1;
+                    }
+                    continue;
+                }
+
+                // we care about the edge direction (and hence, the normal direction).
+
+                // given the winding order of the polygon is COUNTERCLOCKWISE, the "interior" side of the edge
+                // is a 90 degree CCW rotation. (orthogonal to the edge, facing into the polygon)
+                // I'm calling this "into" - note, this is NOT normalized! (we are only ever doing dot sign checks)
+                var into = new Vector2(-edge.y, edge.x);
+                int rx = into.x >= 0 ? 0 : 1;   
+                int ry = into.y >= 0 ? 0 : 1;
+
+                // for -x,-y edges, the into direction is +X, -Y - use the TL cell vertex to test. (0,1)
+                // for +x,-y edges, the into direction is +X, +Y - use the BL cell vertex to test. (0,0)
+                // for -x,+y edges, the into direction is -X, -Y - use the TR cell vertex to test. (1,1)
+                // for +x,+y edges, the into direction is -X, +Y - use the BR cell vertex to test. (1,0)
+
+                // edge crosses at least one cell in the span.
+                // we ONLY care about crossing - i.e. the edge has some subsegment that is concretely
+                // inside the cell.
+                // simple method is to dot product all corners - if they are all the same sign, the edge
+                // does not cross the cell. If any are different, then at least one corner is on the
+                // other side of the edge to the other corners.
+                // however - using the "into" direction allows us to pick the "best two" corners
+                // (diagonally opposed).
+                // if we only test the "best two" corners, we can be certain that 
+                // if the dot product is zero at a corner, the edge cannot cross the cell, only touch
+                // the corner or lie parallel to the cell edges (otherwise we would have picked the other
+                // two corners to test).)
+
+                for (int q = span_y_start; q < span_y_end ; q++) {
+                    for (int p = span_x_start ; p < span_x_end ; p++) {
+                        var corner_a = new Vector2(xs[p+rx], ys[q+ry]);
+                        var corner_b = new Vector2(xs[p+(1-rx)], ys[q + (1-ry)]);
+                        var s_ca = corner_a - s;
+                        var s_cb = corner_b - s;
+                        var dot_a = Vector2.Dot(s_ca, into);
+                        var dot_b = Vector2.Dot(s_cb, into);
+
+                        if (dot_a * dot_b < 0) {
+                            // the edge crosses the cell.
+                            if (e.x != xs[p+1]) {
+                                var intersects = IntersectsInternal(s,e, new Vector2(xs[p+1], ys[q]), new Vector2(xs[p+1], ys[q+1]), out var intersect_point);
+                                // if the crossing intersects the RIGHT CELL EDGE, then we count it as a straddle,
+                                // because some part of the next cell to the right MUST also contain this edge and we don't want to
+                                // change state until there is no crossing occuring related to this edge.
+                                if (intersects) {
+                                    cell_straddles[p,q]++;
+                                }
+                            }
+
+                            cell_crossings[p,q]++;
+                        } 
+                    }
+                }
+            }
+
+            // we now have three arrays:
+            // CELL_CROSSINGS (where an edge crosses a cell)
+            // CELL_LEFT_EDGES (where an edge runs up or down the left edge of a cell).
+            // CELL_STRADDLE (where an edge crosses a cell through the cell right edge).
+
+            // the values in CELL_CROSSINGS should be zero if no edge has crossed, or some positive value representing the count of crossings.
+            // the values in CELL_LEFT_EDGES should be zero if no edge is aligned with the cell left edge, positive if the edge is up, negative if the edge is down.
+            // the values in CELL_STRADDLES should be the count of edges that straddle the cell.
+            
+            // a cell containing crossings cannot be interior, by definition, but it can change the state
+            // for the next cell.
+
+            for (int y = 0 ; y < yc ; y++) {
+                // cells are in two states - EXTERIOR (0) or INTERIOR (1)
+                // start with state as 0 - EXTERIOR
+                var state = 0;
+                for (int x = 0 ; x < xc ; x++) {
+                    var crossings = cell_crossings[x,y];
+                    var left_edge = cell_left_edges[x,y];
+                    var straddle = cell_straddles[x,y];
+                    if (left_edge > 1 || left_edge < -1) { Debug.Log($"degenerate left edge for cell {x},{y}."); return false; }
+                    // Debug.Log($"{x},{y} : c: {crossings}, l: {left_edge}, straddle: {straddle}, state: {state}");
+
+                    if (crossings == 0 && left_edge == 0 && straddle == 0) {
+                        cells[x,y] = state;
+                        continue;
+                    }
+                    state = (state + crossings + straddle + left_edge) % 2;
+                    if (state > 1 || state < 0) {
+                        Debug.Log($"Bad cell crossing state {x},{y} : {state}");
+                        return false;
+                    }
+                    // cells that are crossed can never be interior.
+                    if (crossings > 0) {
+                        cells[x,y] = 0;
+                        continue;
+                    }
+                    cells[x,y] = state;
+                }
+            }
+
+            return true;
+
+        }
+
+        public static bool IntersectsInternal(Vector2 sa, Vector2 ea, Vector2 sb, Vector2 eb, out Vector2 point) {
+            point = Vector2.zero;
+            float xa = ea.x - sa.x;
+            float ya = ea.y - sa.y;
+            float xb = eb.x - sb.x;
+            float yb = eb.y - sb.y;
+
+            float div = (-xb * ya) + (xa * yb);
+            if (div == 0) return false;
+            float s = ((-ya * (sa.x - sb.x)) + (xa * (sa.y - sb.y))) / div;
+            if (s <= 0 || s >= 1) return false;
+            float t = (( xb * (sa.y - sb.y)) - (yb * (sa.x - sb.x))) / div; 
+            if (t <= 0 || t >= 1) return false;
+            point = new Vector2(sa.x + (t*xa), sa.y + (t*ya));
+            return true;
+
+        }
+
+        public static bool IntersectsWiki(Vector2 starta, Vector2 enda, Vector2 startb, Vector2 endb, out Vector2 point)
+        {
+            float x1 = starta.x, x2 = enda.x, x3 = startb.x, x4 = endb.x;
+            float y1 = starta.y, y2 = enda.y, y3 = startb.y, y4 = endb.y;
+
+            var div = ((x1-x2)*(y3-y4)) - ((y1-y2)*(x3-x4));
+            if (div != 0) {
+                float t = ((x1-x3)*(y3-y4)) - ((y1-y3)*(x3-x4));
+                if (t >= 0 && t <= 1) {
+                    float u = ((x1-x2)*(y1-y3)) - ((y1-y2)*(x1-x3));
+                    if (u >= 0 && u <= 1) {
+                        var x = x1 + (t*(x2-x1));
+                        var y = y1 + (t*(y2-y1));
+                        point = new Vector2(x,y);
+                        return true;
+                    }
+                }
+            }
+            point = Vector2.zero;
+            return false;
+        }
+
+        public static bool IntersectsOld(Vector2 starta, Vector2 enda, Vector2 startb, Vector2 endb, out Vector2 point)
+        {
+            float x1 = starta.x, x2 = enda.x, x3 = startb.x, x4 = endb.x;
+            float y1 = starta.y, y2 = enda.y, y3 = startb.y, y4 = endb.y;
+
+            float ax = x1-x2;
+            float ay = y2-y1;
+            float a = (ay*x1)+(ax*y1);
+
+            float bx = x3-x4;
+            float by = y4-y3;
+            float b = (by*x3)+(bx*y3);
+
+            float det = ay*bx - by*ax;
+            if (det==0) {point = Vector2.zero; return false; }
+
+            var x = ((bx*a) - (ax*b))/det;
+            var y = ((ay*b) - (by*a))/det;
+            point = new Vector2(x,y);
+            return true;
+        }
+
+
+
+
+
+        // calculate axis-aligned cell array.
+        // REQUIRED - ordered polygon points array in vs (does not need to be convex, DOES need to be ordered
+        // as a simple polygon)
+
+        public static bool CalculateInteriorCellsOld(Vector2[] vs, out float[] xs, out float[] ys, out int[,] cells)
+        {
+            var vc = vs.Length;
+
+            var ok = CalculateXsAndYs(vs, out xs, out ys);
+            if (!ok) { cells = new int[0,0]; return false; }
 
             // if we want to, here we can extend xs / ys, by adding additional points (midpoints, or reproject
             // as per the paper)
@@ -738,7 +1008,7 @@ namespace Evryway
                 var span_x_end = Mathf.Max(six, eix);
                 var span_y_end = Mathf.Max(siy, eiy);
 
-                //Debug.Log($"edge {i} : from ({s.x}, {s.y}) to ({e.x} {e.y}) - span x: {span_x_start}-{span_x_end}, y: {span_y_start}-{span_y_end}");
+                // Debug.Log($"edge {i} : from ({s.x}, {s.y}) to ({e.x} {e.y}) - span x: {span_x_start}-{span_x_end}, y: {span_y_start}-{span_y_end}");
 
                 // we care about the edge direction (and hence, the normal direction).
 
@@ -858,6 +1128,8 @@ namespace Evryway
 
             return true;
         }
+
+
 
 
         // take the outputs from the preceeding function, and calculate the rectangular region that
